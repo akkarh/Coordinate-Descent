@@ -108,14 +108,14 @@ public class TeamModeler {
 		while (change > tol) {
 			TeamModel temp = new TeamModel();
 			for (String team: teams) {
-				double newOffense = Optimizer.findMaximumOfUnimodal(t -> temp.copy().setOffense(team, t).evalLoss(drives, penalty), -2, 6);
+				double newOffense = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setOffense(team, t).evalLoss(drives, penalty), -2, 6);
 				temp.setOffense(team, newOffense);
 			}
 			for (String team: teams) {
-				double newDefense = Optimizer.findMaximumOfUnimodal(t -> temp.copy().setDefense(team, t).evalLoss(drives, penalty), -2, 6);
+				double newDefense = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setDefense(team, t).evalLoss(drives, penalty), -2, 6);
 				temp.setDefense(team, newDefense);
 			}
-			double newConstant = Optimizer.findMaximumOfUnimodal(t -> temp.copy().setConstant(t).evalLoss(drives, penalty), -1, 1);
+			double newConstant = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setConstant(t).evalLoss(drives, penalty), -8, 8);
 			temp.setConstant(newConstant);
 			best = temp;
 			change = best.copy().addScaledBy(-1, temp).norm0();
@@ -154,16 +154,30 @@ public class TeamModeler {
 	 */
 	private static void train(String fileName) throws IOException {
 		// TODO: try every period of WEEKS weeks in a row
-		List<Drive> drives = new ArrayList<Drive>();
 		int min = 1;
-		int max = WEEKS;
-		while (max <= 17) {
-			drives.addAll(loadDrives(fileName, min, max));
+		int max = WEEKS + 1;
+		while (max < 17) {
+			List<Integer> nonZeroParams = new ArrayList<Integer>();
+			List<Double> testErrors = new ArrayList<Double>();
+			double minTestError = Double.MAX_VALUE;
+			for (double pc = 0.050; pc > -0.001; pc -= 0.001) {
+				List<Drive> drives = loadDrives(fileName, min, max - 1);
+				List<Drive> next = loadDrives(fileName, max, max);
+				TeamModel best = findBestModel(drives, pc, TOLERANCE, true);
+				double testError = best.evalLoss(next, 0.0);
+				minTestError = Math.min(minTestError, testError);
+				testErrors.add(testError);
+				nonZeroParams.add(best.countNonZeroParameters(0.005));
+			}
+			for (int i = 0; i < testErrors.size(); i++) {
+				testErrors.set(i, testErrors.get(i) - minTestError);
+			}
+			for (int i = 0; i < testErrors.size(); i++) {
+				System.out.printf("%2d %g", nonZeroParams.get(i), testErrors.get(i));
+				System.out.println();
+			}
 			min++;
 			max++;
-		}
-		for (double pc = 0.050; pc > 0.000; pc -= 0.001) {
-			
 		}
 		// TODO: try every penalty from 0.05 down to 0 stepping by 0.001
 		// TODO: for each combination, print the number of non-zero entries and the
