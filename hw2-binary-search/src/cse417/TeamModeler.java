@@ -14,8 +14,6 @@ import java.util.stream.Collectors;
 
 import java.util.function.DoubleFunction;
 
-import static cse417.TeamModel.TEAMS;
-
 
 /**
  * Program that finds {@code TeamModel}s that best fit provided data. The
@@ -101,24 +99,22 @@ public class TeamModeler {
 	 */
 	private static TeamModel findBestModel(
 			final List<Drive> drives, double penalty, double tol, boolean verbose) {
+		// TODO: implement coordinate descent
 		TeamModel best = new TeamModel();
-		double change = Integer.MAX_VALUE;
+		double change = Double.MAX_VALUE;
 		List<String> teams = TeamModel.TEAMS;
-		// TODO: Verify the parameters
 		while (change > tol) {
-			TeamModel temp = new TeamModel();
+			TeamModel temp = best.copy();
 			for (String team: teams) {
 				double newOffense = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setOffense(team, t).evalLoss(drives, penalty), -2, 6);
 				temp.setOffense(team, newOffense);
-			}
-			for (String team: teams) {
 				double newDefense = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setDefense(team, t).evalLoss(drives, penalty), -2, 6);
 				temp.setDefense(team, newDefense);
 			}
 			double newConstant = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setConstant(t).evalLoss(drives, penalty), -8, 8);
 			temp.setConstant(newConstant);
-			best = temp;
 			change = best.copy().addScaledBy(-1, temp).norm0();
+			best = temp;
 		}
 		return best;
 	}
@@ -127,15 +123,45 @@ public class TeamModeler {
 	 * Like {@code findBestModel} above but taking the desired number of non-zero
 	 * parameters in the model instead of the penalty.
 	 * <p>
-	 * If increasing the penalty by less than 0.0001 changes the number of
+	 * If decreasing the penalty by less than 0.0001 changes the number of
 	 * non-zero parameters from less than the desired amount to more than the
 	 * desired amount, then this will just return the model with fewer parameters
 	 */
+	// Invariant: Invariant: (f(p) < x for p <= low) and (x < f(p) or p >= high) 
 	private static TeamModel findBestSparseModel(
 			final List<Drive> drives, int numNonZeros, double tol, boolean verbose) {
 		// TODO: Extra credit: implement this by figuring out which penalty to use
 		//       to get the desired number of non-zero entries
-		return null;
+		TeamModel best = new TeamModel();
+		int currCount = 0;
+		double low = 0.0;
+		double high = 0.5;
+		double penalty = 0.0;
+		while (currCount != numNonZeros) {
+			TeamModel temp = new TeamModel();
+			double res = (low + high) / 2;
+			List<String> teams = TeamModel.TEAMS;
+			for (String team: teams) {
+				double newOffense = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setOffense(team, t).evalLoss(drives, penalty), -2, 6);
+				temp.setOffense(team, newOffense);
+			}
+			for (String team: teams) {
+				double newDefense = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setDefense(team, t).evalLoss(drives, penalty), -2, 6);
+				temp.setOffense(team, newDefense);
+			}
+			double newConstant = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setConstant(t).evalLoss(drives, penalty), -8, 8);
+			temp.setConstant(newConstant);
+			currCount = temp.countNonZeroParameters(tol);
+			if (currCount < numNonZeros) {
+				high = penalty;
+			} else if (currCount > numNonZeros) {
+				low = penalty;
+			} else {
+				res = 0.0;
+				best = temp.copy();
+			}
+		}
+		return best;
 	}
 
 	/** 
@@ -159,30 +185,22 @@ public class TeamModeler {
 		while (max < 17) {
 			List<Integer> nonZeroParams = new ArrayList<Integer>();
 			List<Double> testErrors = new ArrayList<Double>();
+			List<Drive> drives = loadDrives(fileName, min, max - 1);
+			List<Drive> next = loadDrives(fileName, max, max);
 			double minTestError = Double.MAX_VALUE;
 			for (double pc = 0.050; pc > -0.001; pc -= 0.001) {
-				List<Drive> drives = loadDrives(fileName, min, max - 1);
-				List<Drive> next = loadDrives(fileName, max, max);
-				TeamModel best = findBestModel(drives, pc, TOLERANCE, true);
-				double testError = best.evalLoss(next, 0.0);
+				TeamModel model = findBestModel(drives, pc, TOLERANCE, true);
+				double testError = model.evalLoss(next, 0.0);
 				minTestError = Math.min(minTestError, testError);
+				nonZeroParams.add(model.countNonZeroParameters(TOLERANCE));
 				testErrors.add(testError);
-				nonZeroParams.add(best.countNonZeroParameters(0.005));
 			}
 			for (int i = 0; i < testErrors.size(); i++) {
-				testErrors.set(i, testErrors.get(i) - minTestError);
-			}
-			for (int i = 0; i < testErrors.size(); i++) {
-				System.out.printf("%2d %g", nonZeroParams.get(i), testErrors.get(i));
+				System.out.printf("%2d %g", nonZeroParams.get(i), (testErrors.get(i) - minTestError));
 				System.out.println();
 			}
 			min++;
 			max++;
 		}
-		// TODO: try every penalty from 0.05 down to 0 stepping by 0.001
-		// TODO: for each combination, print the number of non-zero entries and the
-		//       amount of extra error beyond the minimum achieved by any penalty
-		//       over those weeks of the data
-		//  - (some weeks are just harder to fit than others, so normalize this way)
 	}
 }
