@@ -130,35 +130,33 @@ public class TeamModeler {
 	// Invariant: Invariant: (f(p) < x for p <= low) and (x < f(p) or p >= high) 
 	private static TeamModel findBestSparseModel(
 			final List<Drive> drives, int numNonZeros, double tol, boolean verbose) {
-		// TODO: Extra credit: implement this by figuring out which penalty to use
-		//       to get the desired number of non-zero entries
 		TeamModel best = new TeamModel();
 		int currCount = 0;
 		double low = 0.0;
 		double high = 0.5;
 		double penalty = 0.0;
-		while (currCount != numNonZeros) {
-			TeamModel temp = new TeamModel();
-			double res = (low + high) / 2;
-			List<String> teams = TeamModel.TEAMS;
-			for (String team: teams) {
-				double newOffense = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setOffense(team, t).evalLoss(drives, penalty), -2, 6);
-				temp.setOffense(team, newOffense);
-			}
-			for (String team: teams) {
-				double newDefense = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setDefense(team, t).evalLoss(drives, penalty), -2, 6);
-				temp.setOffense(team, newDefense);
-			}
-			double newConstant = Optimizer.findMinimumOfUnimodal(t -> temp.copy().setConstant(t).evalLoss(drives, penalty), -8, 8);
-			temp.setConstant(newConstant);
+		
+		// TODO: Exits the loop when the model number of non zero parameters doesn't change
+		// after repCount calls
+		int repCount = 10;
+		int prevCount = 0;
+		
+		while (currCount != numNonZeros && repCount > 0) {
+			penalty = (low + high) / 2;
+			TeamModel temp = findBestModel(drives, penalty, tol, true);
+			prevCount = currCount;
 			currCount = temp.countNonZeroParameters(tol);
 			if (currCount < numNonZeros) {
 				high = penalty;
 			} else if (currCount > numNonZeros) {
 				low = penalty;
 			} else {
-				res = 0.0;
-				best = temp.copy();
+				best = temp;
+			}
+			if (prevCount == currCount) {
+				repCount--;
+			} else {
+				repCount = 10;
 			}
 		}
 		return best;
@@ -188,12 +186,15 @@ public class TeamModeler {
 			List<Drive> drives = loadDrives(fileName, min, max - 1);
 			List<Drive> next = loadDrives(fileName, max, max);
 			double minTestError = Double.MAX_VALUE;
-			for (double pc = 0.050; pc > -0.001; pc -= 0.001) {
-				TeamModel model = findBestModel(drives, pc, TOLERANCE, true);
+			int penalty = 50;
+			// takes less time than stepping down from 0.05
+			for (int i = 0; i < 51; i++) {
+				TeamModel model = findBestModel(drives, penalty / 1000.0, TOLERANCE, true);
 				double testError = model.evalLoss(next, 0.0);
 				minTestError = Math.min(minTestError, testError);
 				nonZeroParams.add(model.countNonZeroParameters(TOLERANCE));
 				testErrors.add(testError);
+				penalty--;
 			}
 			for (int i = 0; i < testErrors.size(); i++) {
 				System.out.printf("%2d %g", nonZeroParams.get(i), (testErrors.get(i) - minTestError));
